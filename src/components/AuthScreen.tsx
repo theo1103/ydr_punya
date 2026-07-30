@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { getUsers, loginUser, registerUser } from '../utils/db';
-import { LogIn, UserPlus, Lock, User as UserIcon, Shield } from 'lucide-react';
+import { LogIn, UserPlus, Lock, User as UserIcon } from 'lucide-react';
 
 interface AuthScreenProps {
   logoUrl: string;
@@ -175,28 +175,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ logoUrl, onLoginSuccess 
               <LogIn className="w-4 h-4" />
               Masuk
             </button>
-
-            <div className="mt-4 p-3.5 bg-slate-800/80 rounded-2xl border border-amber-500/30 text-xs text-slate-300 flex items-center justify-between gap-2">
-              <div>
-                <span className="font-semibold text-amber-400 flex items-center gap-1 mb-0.5">
-                  <Shield className="w-3.5 h-3.5 text-amber-400" /> Default Admin
-                </span>
-                <p className="text-[11px] text-slate-400">
-                  <code className="text-amber-300">yadoru</code> / <code className="text-amber-300">yadoru123</code>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedUsername('yadoru');
-                  setCustomUsername('');
-                  setSignInPassword('yadoru123');
-                }}
-                className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold rounded-lg border border-amber-500/40 text-[11px] transition-colors shrink-0"
-              >
-                Isi Kredensial Admin
-              </button>
-            </div>
           </form>
         )}
 
