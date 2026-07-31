@@ -1,8 +1,8 @@
 import React from 'react';
 import { User } from '../types';
-import { Inbox, BarChart2, User as UserIcon, Settings, LogOut, Shield, PanelLeftClose, X } from 'lucide-react';
+import { Inbox, BarChart2, User as UserIcon, Settings, LogOut, Shield, PanelLeftClose, X, Gift } from 'lucide-react';
 
-export type NavChoice = 'input' | 'dashboard' | 'profile' | 'admin';
+export type NavChoice = 'input' | 'dashboard' | 'gift-sendback' | 'profile' | 'admin';
 
 interface SidebarProps {
   logoUrl: string;
@@ -94,6 +94,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <BarChart2 className="w-4.5 h-4.5 text-blue-400" />
             <span>📊 Dashboard</span>
+          </button>
+
+          <button
+            onClick={() => {
+              onSelectNav('gift-sendback');
+              if (window.innerWidth < 768) onClose();
+            }}
+            className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl font-semibold text-sm transition-all ${
+              currentNav === 'gift-sendback'
+                ? 'bg-slate-800 text-white shadow-md border border-slate-700'
+                : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+            }`}
+          >
+            <Gift className="w-4.5 h-4.5 text-pink-400" />
+            <span>🎁 Gift Sendback</span>
           </button>
 
           <button

@@ -1,64 +1,51 @@
-import { User, DailyDataRecord, AppSettings } from '../types';
+import { User, DailyDataRecord, AppSettings, GiftSendbackRecord } from '../types';
 import { sha256Hex } from './crypto';
+import { db } from './firebase';
+import {
+  collection,
+  doc,
+  getDocs,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+} from 'firebase/firestore';
 
-const USERS_KEY = 'yadoru_users_v5';
-const DATA_KEY = 'yadoru_daily_data_v5';
-const SETTINGS_KEY = 'yadoru_settings_v5';
+const USERS_KEY = 'yadoru_users_v6';
+const DATA_KEY = 'yadoru_daily_data_v6';
+const SETTINGS_KEY = 'yadoru_settings_v6';
+const SENDBACKS_KEY = 'yadoru_gift_sendbacks_v6';
 
 const DEFAULT_ADMIN_PW_HASH = '1fba41cb765502b66236b28eb9f3ef42eb3a846f414bd65839db0e82c5f9227d'; // sha256('yadoru123')
 const DEFAULT_LOGO = 'https://cdn-icons-png.flaticon.com/512/6009/6009864.png';
 
-// Real-time synchronization event bus across tabs and components
-const DB_CHANGE_EVENT = 'yadoru_db_change';
-let syncChannel: BroadcastChannel | null = null;
-if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-  try {
-    syncChannel = new BroadcastChannel('yadoru_db_channel');
-  } catch {
-    syncChannel = null;
-  }
-}
+// Local Memory Caches for immediate synchronous UI updates
+let cachedUsers: User[] = [];
+let cachedDailyData: DailyDataRecord[] = [];
+let cachedSettings: AppSettings = { logoUrl: DEFAULT_LOGO };
+let cachedGiftSendbacks: GiftSendbackRecord[] = [];
 
-export function notifyDatabaseChange(): void {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(DB_CHANGE_EVENT));
-    if (syncChannel) {
-      try {
-        syncChannel.postMessage('db_updated');
-      } catch {
-        // ignore
-      }
+// Event bus listeners
+const listeners: Set<() => void> = new Set();
+
+function notifyListeners() {
+  listeners.forEach((cb) => {
+    try {
+      cb();
+    } catch (err) {
+      console.error('Listener error:', err);
     }
-  }
+  });
 }
 
 export function subscribeDatabaseChanges(callback: () => void): () => void {
-  if (typeof window === 'undefined') return () => {};
-
-  const handleCustomEvent = () => callback();
-  const handleStorageEvent = (e: StorageEvent) => {
-    if (e.key === USERS_KEY || e.key === DATA_KEY || e.key === SETTINGS_KEY) {
-      callback();
-    }
-  };
-  const handleBroadcastMessage = () => callback();
-
-  window.addEventListener(DB_CHANGE_EVENT, handleCustomEvent);
-  window.addEventListener('storage', handleStorageEvent);
-  if (syncChannel) {
-    syncChannel.addEventListener('message', handleBroadcastMessage);
-  }
-
+  listeners.add(callback);
   return () => {
-    window.removeEventListener(DB_CHANGE_EVENT, handleCustomEvent);
-    window.removeEventListener('storage', handleStorageEvent);
-    if (syncChannel) {
-      syncChannel.removeEventListener('message', handleBroadcastMessage);
-    }
+    listeners.delete(callback);
   };
 }
 
-// Initialize default data if not existing
+// Initialize Firestore listeners & fallback seed data
 export async function initDatabase(): Promise<void> {
   let adminHash = DEFAULT_ADMIN_PW_HASH;
   try {
@@ -67,58 +54,193 @@ export async function initDatabase(): Promise<void> {
     // fallback
   }
 
-  const users = getUsers();
-  const yadoruUser = users.find((u) => u.username.toLowerCase() === 'yadoru');
+  // Local storage initial load as immediate fallback
+  try {
+    const localUsers = localStorage.getItem(USERS_KEY);
+    if (localUsers) cachedUsers = JSON.parse(localUsers);
 
-  if (!yadoruUser) {
-    users.unshift({
-      username: 'yadoru',
-      passwordHash: adminHash,
-      role: 'admin',
-      bio: 'Administrator Yadoru Corporate',
-      twitter: '@yadoru_corp',
-    });
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  } else {
-    // Always ensure yadoru has admin role and valid password hash
-    yadoruUser.role = 'admin';
-    yadoruUser.passwordHash = adminHash;
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    const localData = localStorage.getItem(DATA_KEY);
+    if (localData) cachedDailyData = JSON.parse(localData);
+
+    const localSettings = localStorage.getItem(SETTINGS_KEY);
+    if (localSettings) cachedSettings = JSON.parse(localSettings);
+
+    const localSendbacks = localStorage.getItem(SENDBACKS_KEY);
+    if (localSendbacks) cachedGiftSendbacks = JSON.parse(localSendbacks);
+  } catch {
+    // ignore
   }
 
-  if (!localStorage.getItem(DATA_KEY)) {
-    const today = new Date().toISOString().split('T')[0];
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-    const twoDaysAgo = new Date(Date.now() - 172800000).toISOString().split('T')[0];
+  // 1. Subscribe to Firestore 'users' collection
+  onSnapshot(
+    collection(db, 'users'),
+    async (snapshot) => {
+      if (!snapshot.empty) {
+        const usersList: User[] = [];
+        snapshot.forEach((docSnap) => {
+          usersList.push(docSnap.data() as User);
+        });
+        cachedUsers = usersList;
+        localStorage.setItem(USERS_KEY, JSON.stringify(cachedUsers));
+      } else {
+        // Seed initial admin if empty
+        const initialAdmin: User = {
+          username: 'yadoru',
+          passwordHash: adminHash,
+          role: 'admin',
+          bio: 'Administrator Yadoru Corporate',
+          twitter: '@yadoru_corp',
+        };
+        await setDoc(doc(db, 'users', 'yadoru'), initialAdmin);
+        cachedUsers = [initialAdmin];
+      }
+      notifyListeners();
+    },
+    (error) => {
+      console.warn('Firestore users snapshot listener error (using local cache):', error);
+      // Ensure yadoru exists in local fallback
+      if (!cachedUsers.some((u) => u.username.toLowerCase() === 'yadoru')) {
+        cachedUsers.unshift({
+          username: 'yadoru',
+          passwordHash: adminHash,
+          role: 'admin',
+          bio: 'Administrator Yadoru Corporate',
+          twitter: '@yadoru_corp',
+        });
+        localStorage.setItem(USERS_KEY, JSON.stringify(cachedUsers));
+        notifyListeners();
+      }
+    }
+  );
 
-    const initialData: DailyDataRecord[] = [
-      { id: '1', username: 'yadoru', date: twoDaysAgo, value: 1500000 },
-      { id: '2', username: 'yadoru', date: yesterday, value: 2400000 },
-      { id: '3', username: 'yadoru', date: today, value: 3100000 },
-    ];
-    localStorage.setItem(DATA_KEY, JSON.stringify(initialData));
+  // 2. Subscribe to Firestore 'daily_data' collection
+  onSnapshot(
+    collection(db, 'daily_data'),
+    async (snapshot) => {
+      if (!snapshot.empty) {
+        const records: DailyDataRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          records.push({ id: docSnap.id, ...(docSnap.data() as Omit<DailyDataRecord, 'id'>) });
+        });
+        cachedDailyData = records;
+        localStorage.setItem(DATA_KEY, JSON.stringify(cachedDailyData));
+      } else {
+        // Seed initial sample data if empty
+        const today = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+        const twoDaysAgo = new Date(Date.now() - 172800000).toISOString().split('T')[0];
+
+        const initialRecords: DailyDataRecord[] = [
+          { id: '1', username: 'yadoru', date: twoDaysAgo, value: 1500000 },
+          { id: '2', username: 'yadoru', date: yesterday, value: 2400000 },
+          { id: '3', username: 'yadoru', date: today, value: 3100000 },
+        ];
+        for (const rec of initialRecords) {
+          await setDoc(doc(db, 'daily_data', rec.id), rec);
+        }
+        cachedDailyData = initialRecords;
+      }
+      notifyListeners();
+    },
+    (error) => {
+      console.warn('Firestore daily_data snapshot listener error (using local cache):', error);
+    }
+  );
+
+  // 3. Subscribe to Firestore 'settings' collection
+  onSnapshot(
+    doc(db, 'settings', 'app'),
+    async (docSnap) => {
+      if (docSnap.exists()) {
+        cachedSettings = docSnap.data() as AppSettings;
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(cachedSettings));
+      } else {
+        const defaultSettings: AppSettings = { logoUrl: DEFAULT_LOGO };
+        await setDoc(doc(db, 'settings', 'app'), defaultSettings);
+        cachedSettings = defaultSettings;
+      }
+      notifyListeners();
+    },
+    (error) => {
+      console.warn('Firestore settings snapshot listener error (using local cache):', error);
+    }
+  );
+
+  // 4. Subscribe to Firestore 'gift_sendbacks' collection
+  onSnapshot(
+    collection(db, 'gift_sendbacks'),
+    async (snapshot) => {
+      if (!snapshot.empty) {
+        const sendbacks: GiftSendbackRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          sendbacks.push({ id: docSnap.id, ...(docSnap.data() as Omit<GiftSendbackRecord, 'id'>) });
+        });
+        cachedGiftSendbacks = sendbacks;
+        localStorage.setItem(SENDBACKS_KEY, JSON.stringify(cachedGiftSendbacks));
+      } else {
+        cachedGiftSendbacks = [];
+      }
+      notifyListeners();
+    },
+    (error) => {
+      console.warn('Firestore gift_sendbacks snapshot listener error (using local cache):', error);
+    }
+  );
+}
+
+// Gift Sendback Operations
+export function getGiftSendbacks(): GiftSendbackRecord[] {
+  return cachedGiftSendbacks;
+}
+
+export async function addGiftSendback(
+  username: string,
+  amount: number,
+  date: string,
+  notes?: string,
+  evidenceUrl?: string,
+  recordedBy: string = 'admin'
+): Promise<void> {
+  const newRecord: GiftSendbackRecord = {
+    id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
+    username: username.trim(),
+    amount,
+    date,
+    notes: notes ? notes.trim() : undefined,
+    evidenceUrl: evidenceUrl || undefined,
+    recordedBy: recordedBy || 'admin',
+  };
+
+  cachedGiftSendbacks.push(newRecord);
+  localStorage.setItem(SENDBACKS_KEY, JSON.stringify(cachedGiftSendbacks));
+  notifyListeners();
+
+  try {
+    await setDoc(doc(db, 'gift_sendbacks', newRecord.id), newRecord);
+  } catch (err) {
+    console.error('Error adding gift sendback record to Firestore:', err);
   }
+}
 
-  if (!localStorage.getItem(SETTINGS_KEY)) {
-    const settings: AppSettings = {
-      logoUrl: DEFAULT_LOGO,
-    };
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+export async function deleteGiftSendback(id: string): Promise<void> {
+  cachedGiftSendbacks = cachedGiftSendbacks.filter((item) => item.id !== id);
+  localStorage.setItem(SENDBACKS_KEY, JSON.stringify(cachedGiftSendbacks));
+  notifyListeners();
+
+  try {
+    await deleteDoc(doc(db, 'gift_sendbacks', id));
+  } catch (err) {
+    console.error('Error deleting gift sendback from Firestore:', err);
   }
 }
 
 // User methods
 export function getUsers(): User[] {
-  try {
-    const data = localStorage.getItem(USERS_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
+  return cachedUsers;
 }
 
 export function getUser(username: string): User | undefined {
-  return getUsers().find((u) => u.username.toLowerCase() === username.toLowerCase());
+  return cachedUsers.find((u) => u.username.toLowerCase() === username.toLowerCase());
 }
 
 export async function registerUser(username: string, password: string): Promise<{ success: boolean; message: string }> {
@@ -126,157 +248,195 @@ export async function registerUser(username: string, password: string): Promise<
     return { success: false, message: 'Username dan Password tidak boleh kosong' };
   }
 
-  const users = getUsers();
-  const exists = users.some((u) => u.username.toLowerCase() === username.trim().toLowerCase());
+  const cleanUser = username.trim();
+  const exists = cachedUsers.some((u) => u.username.toLowerCase() === cleanUser.toLowerCase());
   if (exists) {
     return { success: false, message: 'Username sudah terpakai!' };
   }
 
   const passwordHash = await sha256Hex(password);
   const newUser: User = {
-    username: username.trim(),
+    username: cleanUser,
     passwordHash,
     role: 'user',
     twitter: '@',
   };
 
-  users.push(newUser);
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  notifyDatabaseChange();
+  // Update online Firestore & local cache
+  cachedUsers.push(newUser);
+  localStorage.setItem(USERS_KEY, JSON.stringify(cachedUsers));
+  notifyListeners();
+
+  try {
+    await setDoc(doc(db, 'users', cleanUser.toLowerCase()), newUser);
+  } catch (err) {
+    console.error('Error saving user to Firestore:', err);
+  }
+
   return { success: true, message: 'Berhasil! Silakan Login.' };
 }
 
-export async function loginUser(username: string, password: string): Promise<{ success: boolean; user?: User; message?: string }> {
+export async function loginUser(
+  username: string,
+  password: string
+): Promise<{ success: boolean; user?: User; message?: string }> {
   const cleanUsername = username.trim().toLowerCase();
-  let user = getUser(cleanUsername);
 
-  // Fallback for default admin yadoru if somehow missing
-  if (cleanUsername === 'yadoru' && !user) {
+  let targetUser = cachedUsers.find((u) => u.username.toLowerCase() === cleanUsername);
+
+  // If yadoru is logging in with default password, ensure admin account exists
+  if (!targetUser && cleanUsername === 'yadoru' && password === 'yadoru123') {
     const adminHash = await sha256Hex('yadoru123');
-    user = {
+    targetUser = {
       username: 'yadoru',
       passwordHash: adminHash,
       role: 'admin',
       bio: 'Administrator Yadoru Corporate',
       twitter: '@yadoru_corp',
     };
+    cachedUsers.push(targetUser);
+    try {
+      await setDoc(doc(db, 'users', 'yadoru'), targetUser);
+    } catch {
+      // ignore
+    }
   }
 
-  if (!user) {
+  if (!targetUser) {
     return { success: false, message: 'Username tidak ditemukan!' };
   }
 
   const inputHash = await sha256Hex(password);
 
-  // Special direct bypass for yadoru admin
-  if (user.username.toLowerCase() === 'yadoru') {
-    if (
-      password === 'yadoru123' ||
-      password === 'admin' ||
-      inputHash === user.passwordHash ||
-      password === user.passwordHash
-    ) {
-      user.role = 'admin';
-      return { success: true, user };
-    }
-  }
-
-  if (inputHash === user.passwordHash || password === user.passwordHash) {
-    return { success: true, user };
+  if (targetUser.passwordHash === inputHash || (cleanUsername === 'yadoru' && password === 'yadoru123')) {
+    return { success: true, user: targetUser };
   }
 
   return { success: false, message: 'Password salah!' };
 }
 
-export function updateUserProfile(
+export async function updateUserProfile(
   username: string,
-  updates: { photo?: string | null; bio?: string | null; twitter?: string | null }
-): void {
-  const users = getUsers();
-  const index = users.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
+  updates: Partial<Omit<User, 'username' | 'passwordHash'>>
+): Promise<void> {
+  const index = cachedUsers.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
   if (index !== -1) {
-    users[index] = {
-      ...users[index],
+    cachedUsers[index] = {
+      ...cachedUsers[index],
       ...updates,
     };
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    notifyDatabaseChange();
+    localStorage.setItem(USERS_KEY, JSON.stringify(cachedUsers));
+    notifyListeners();
+
+    try {
+      await setDoc(doc(db, 'users', username.toLowerCase()), cachedUsers[index], { merge: true });
+    } catch (err) {
+      console.error('Error updating user in Firestore:', err);
+    }
   }
 }
 
-// Daily Data methods
+// Daily Data Operations
 export function getDailyData(): DailyDataRecord[] {
-  try {
-    const data = localStorage.getItem(DATA_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
+  return cachedDailyData;
 }
 
-export function addDailyData(username: string, date: string, value: number, evidence?: string | null): void {
-  const list = getDailyData();
+export async function addDailyData(
+  username: string,
+  date: string,
+  value: number,
+  evidenceUrl?: string | null
+): Promise<void> {
   const newRecord: DailyDataRecord = {
-    id: Date.now().toString(),
-    username,
+    id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
+    username: username.trim(),
     date,
     value,
-    evidence,
+    evidenceUrl: evidenceUrl || undefined,
   };
-  list.push(newRecord);
-  localStorage.setItem(DATA_KEY, JSON.stringify(list));
-  notifyDatabaseChange();
+
+  cachedDailyData.push(newRecord);
+  localStorage.setItem(DATA_KEY, JSON.stringify(cachedDailyData));
+  notifyListeners();
+
+  try {
+    await setDoc(doc(db, 'daily_data', newRecord.id), newRecord);
+  } catch (err) {
+    console.error('Error adding daily data to Firestore:', err);
+  }
 }
 
 // Settings methods
 export function getAppSettings(): AppSettings {
-  try {
-    const data = localStorage.getItem(SETTINGS_KEY);
-    return data ? JSON.parse(data) : { logoUrl: DEFAULT_LOGO };
-  } catch {
-    return { logoUrl: DEFAULT_LOGO };
-  }
+  return cachedSettings;
 }
 
-export function updateAppLogo(logoUrl: string): void {
-  const settings = getAppSettings();
-  settings.logoUrl = logoUrl;
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  notifyDatabaseChange();
+export async function updateAppLogo(logoUrl: string): Promise<void> {
+  cachedSettings = { logoUrl };
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(cachedSettings));
+  notifyListeners();
+
+  try {
+    await setDoc(doc(db, 'settings', 'app'), cachedSettings);
+  } catch (err) {
+    console.error('Error updating logo in Firestore:', err);
+  }
 }
 
 // Admin management operations
-export function toggleUserRole(username: string): void {
-  const users = getUsers();
-  const index = users.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
+export async function toggleAdminRole(username: string): Promise<void> {
+  const index = cachedUsers.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
   if (index !== -1) {
-    users[index].role = users[index].role === 'admin' ? 'user' : 'admin';
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    notifyDatabaseChange();
+    cachedUsers[index].role = cachedUsers[index].role === 'admin' ? 'user' : 'admin';
+    localStorage.setItem(USERS_KEY, JSON.stringify(cachedUsers));
+    notifyListeners();
+
+    try {
+      await setDoc(doc(db, 'users', username.toLowerCase()), { role: cachedUsers[index].role }, { merge: true });
+    } catch (err) {
+      console.error('Error updating role in Firestore:', err);
+    }
   }
 }
 
-export function deleteUser(username: string): void {
-  let users = getUsers();
-  users = users.filter((u) => u.username.toLowerCase() !== username.toLowerCase());
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  notifyDatabaseChange();
+export const toggleUserRole = toggleAdminRole;
+
+export async function deleteUser(username: string): Promise<void> {
+  cachedUsers = cachedUsers.filter((u) => u.username.toLowerCase() !== username.toLowerCase());
+  localStorage.setItem(USERS_KEY, JSON.stringify(cachedUsers));
+  notifyListeners();
+
+  try {
+    await deleteDoc(doc(db, 'users', username.toLowerCase()));
+  } catch (err) {
+    console.error('Error deleting user from Firestore:', err);
+  }
 }
 
 export async function resetUserPassword(username: string, newPw: string): Promise<void> {
-  const users = getUsers();
-  const index = users.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
+  const index = cachedUsers.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
   if (index !== -1) {
-    users[index].passwordHash = await sha256Hex(newPw);
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    notifyDatabaseChange();
+    const newHash = await sha256Hex(newPw);
+    cachedUsers[index].passwordHash = newHash;
+    localStorage.setItem(USERS_KEY, JSON.stringify(cachedUsers));
+    notifyListeners();
+
+    try {
+      await setDoc(doc(db, 'users', username.toLowerCase()), { passwordHash: newHash }, { merge: true });
+    } catch (err) {
+      console.error('Error resetting password in Firestore:', err);
+    }
   }
 }
 
-export function deleteDailyDataRecord(id: string): void {
-  let list = getDailyData();
-  list = list.filter((item) => item.id !== id);
-  localStorage.setItem(DATA_KEY, JSON.stringify(list));
-  notifyDatabaseChange();
-}
+export async function deleteDailyDataRecord(id: string): Promise<void> {
+  cachedDailyData = cachedDailyData.filter((item) => item.id !== id);
+  localStorage.setItem(DATA_KEY, JSON.stringify(cachedDailyData));
+  notifyListeners();
 
+  try {
+    await deleteDoc(doc(db, 'daily_data', id));
+  } catch (err) {
+    console.error('Error deleting daily data from Firestore:', err);
+  }
+}

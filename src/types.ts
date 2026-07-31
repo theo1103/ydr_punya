@@ -19,6 +19,16 @@ export interface AppSettings {
   logoUrl?: string | null;
 }
 
+export interface GiftSendbackRecord {
+  id: string;
+  username: string;
+  amount: number;
+  date: string; // YYYY-MM-DD
+  notes?: string;
+  evidenceUrl?: string;
+  recordedBy: string;
+}
+
 export interface SessionState {
   isLoggedIn: boolean;
   currentUser: string | null;

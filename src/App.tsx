@@ -5,6 +5,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { Sidebar, NavChoice } from './components/Sidebar';
 import { DataInputView } from './components/DataInputView';
 import { DashboardView } from './components/DashboardView';
+import { GiftSendbackView } from './components/GiftSendbackView';
 import { ProfileView } from './components/ProfileView';
 import { AdminSettingsView } from './components/AdminSettingsView';
 import { Menu, PanelLeft, LogOut, Shield } from 'lucide-react';
@@ -77,6 +78,8 @@ export function App() {
         return '📥 Data Input Harian';
       case 'dashboard':
         return '📊 Laporan Dashboard Kumulatif';
+      case 'gift-sendback':
+        return '🎁 Status Gift Sendback';
       case 'profile':
         return '👤 Profil Saya';
       case 'admin':
@@ -160,6 +163,8 @@ export function App() {
           )}
 
           {currentNav === 'dashboard' && <DashboardView />}
+
+          {currentNav === 'gift-sendback' && <GiftSendbackView currentUser={currentUser} />}
 
           {currentNav === 'profile' && (
             <ProfileView
