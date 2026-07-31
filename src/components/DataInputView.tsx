@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { addDailyData } from '../utils/db';
-import { Calendar, DollarSign, Image as ImageIcon, CheckCircle2, Inbox } from 'lucide-react';
+import { addDailyData, getUsers } from '../utils/db';
+import { Calendar, DollarSign, Image as ImageIcon, CheckCircle2, Inbox, User as UserIcon } from 'lucide-react';
 
 interface DataInputViewProps {
   username: string;
@@ -8,11 +8,14 @@ interface DataInputViewProps {
 }
 
 export const DataInputView: React.FC<DataInputViewProps> = ({ username, onDataAdded }) => {
+  const [inputUsername, setInputUsername] = useState<string>(username);
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [value, setValue] = useState<string>('');
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [evidencePreview, setEvidencePreview] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<boolean>(false);
+
+  const registeredUsers = getUsers();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -29,8 +32,9 @@ export const DataInputView: React.FC<DataInputViewProps> = ({ username, onDataAd
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const numericValue = parseFloat(value) || 0;
+    const targetUser = inputUsername.trim() || username;
 
-    addDailyData(username, date, numericValue, evidencePreview);
+    addDailyData(targetUser, date, numericValue, evidencePreview);
     
     // Show success banner
     setSuccessMessage(true);
@@ -61,6 +65,30 @@ export const DataInputView: React.FC<DataInputViewProps> = ({ username, onDataAd
       {/* Form Card */}
       <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-md">
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Nama User */}
+          <div>
+            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <UserIcon className="w-4 h-4 text-slate-400" />
+              Nama User
+            </label>
+            <div className="space-y-2">
+              <input
+                type="text"
+                required
+                placeholder="Ketik nama user..."
+                value={inputUsername}
+                onChange={(e) => setInputUsername(e.target.value)}
+                list="registered-users-list"
+                className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+              />
+              <datalist id="registered-users-list">
+                {registeredUsers.map((u) => (
+                  <option key={u.username} value={u.username} />
+                ))}
+              </datalist>
+            </div>
+          </div>
+
           {/* Tanggal */}
           <div>
             <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
