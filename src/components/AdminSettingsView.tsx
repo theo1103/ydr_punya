@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   getUsers,
   updateAppLogo,
@@ -7,6 +7,7 @@ import {
   resetUserPassword,
   getDailyData,
   deleteDailyDataRecord,
+  subscribeDatabaseChanges,
 } from '../utils/db';
 import {
   Settings,
@@ -44,6 +45,14 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
   const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
 
   const reload = () => setRefreshTrigger((prev) => prev + 1);
+
+  // Auto-reload when DB changes anywhere
+  useEffect(() => {
+    const unsubscribe = subscribeDatabaseChanges(() => {
+      reload();
+    });
+    return () => unsubscribe();
+  }, []);
 
   const users = getUsers();
   const dailyRecords = getDailyData();

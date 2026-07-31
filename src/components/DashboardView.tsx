@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { getDailyData } from '../utils/db';
+import React, { useState, useEffect, useMemo } from 'react';
+import { getDailyData, subscribeDatabaseChanges } from '../utils/db';
+import { DailyDataRecord } from '../types';
 import {
   LineChart,
   Line,
@@ -26,10 +27,18 @@ import {
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
-  const rawRecords = getDailyData();
+  const [rawRecords, setRawRecords] = useState<DailyDataRecord[]>(() => getDailyData());
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  // Subscribe to real-time database changes
+  useEffect(() => {
+    const unsubscribe = subscribeDatabaseChanges(() => {
+      setRawRecords(getDailyData());
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Aggregate by date and username
   const aggregatedData = useMemo(() => {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User } from './types';
-import { initDatabase, getAppSettings, getUser } from './utils/db';
+import { initDatabase, getAppSettings, getUser, subscribeDatabaseChanges } from './utils/db';
 import { AuthScreen } from './components/AuthScreen';
 import { Sidebar, NavChoice } from './components/Sidebar';
 import { DataInputView } from './components/DataInputView';
@@ -15,13 +15,24 @@ export function App() {
   const [appLogoUrl, setAppLogoUrl] = useState<string>('https://cdn-icons-png.flaticon.com/512/6009/6009864.png');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
 
-  // Initialize DB on app start
+  // Initialize DB on app start & subscribe to real-time changes
   useEffect(() => {
     async function setup() {
       await initDatabase();
       refreshAppSettings();
     }
     setup();
+
+    const unsubscribe = subscribeDatabaseChanges(() => {
+      refreshAppSettings();
+      setCurrentUser((prev) => {
+        if (!prev) return null;
+        const updated = getUser(prev.username);
+        return updated || prev;
+      });
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const refreshAppSettings = () => {

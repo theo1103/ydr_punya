@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { addDailyData, getUsers } from '../utils/db';
+import React, { useState, useEffect } from 'react';
+import { addDailyData, getUsers, subscribeDatabaseChanges } from '../utils/db';
+import { User } from '../types';
 import { Calendar, DollarSign, Image as ImageIcon, CheckCircle2, Inbox, User as UserIcon } from 'lucide-react';
 
 interface DataInputViewProps {
@@ -14,8 +15,14 @@ export const DataInputView: React.FC<DataInputViewProps> = ({ username, onDataAd
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [evidencePreview, setEvidencePreview] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<boolean>(false);
+  const [registeredUsers, setRegisteredUsers] = useState<User[]>(() => getUsers());
 
-  const registeredUsers = getUsers();
+  useEffect(() => {
+    const unsubscribe = subscribeDatabaseChanges(() => {
+      setRegisteredUsers(getUsers());
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {

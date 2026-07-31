@@ -8,6 +8,56 @@ const SETTINGS_KEY = 'yadoru_settings_v5';
 const DEFAULT_ADMIN_PW_HASH = '1fba41cb765502b66236b28eb9f3ef42eb3a846f414bd65839db0e82c5f9227d'; // sha256('yadoru123')
 const DEFAULT_LOGO = 'https://cdn-icons-png.flaticon.com/512/6009/6009864.png';
 
+// Real-time synchronization event bus across tabs and components
+const DB_CHANGE_EVENT = 'yadoru_db_change';
+let syncChannel: BroadcastChannel | null = null;
+if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+  try {
+    syncChannel = new BroadcastChannel('yadoru_db_channel');
+  } catch {
+    syncChannel = null;
+  }
+}
+
+export function notifyDatabaseChange(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(DB_CHANGE_EVENT));
+    if (syncChannel) {
+      try {
+        syncChannel.postMessage('db_updated');
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
+export function subscribeDatabaseChanges(callback: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+
+  const handleCustomEvent = () => callback();
+  const handleStorageEvent = (e: StorageEvent) => {
+    if (e.key === USERS_KEY || e.key === DATA_KEY || e.key === SETTINGS_KEY) {
+      callback();
+    }
+  };
+  const handleBroadcastMessage = () => callback();
+
+  window.addEventListener(DB_CHANGE_EVENT, handleCustomEvent);
+  window.addEventListener('storage', handleStorageEvent);
+  if (syncChannel) {
+    syncChannel.addEventListener('message', handleBroadcastMessage);
+  }
+
+  return () => {
+    window.removeEventListener(DB_CHANGE_EVENT, handleCustomEvent);
+    window.removeEventListener('storage', handleStorageEvent);
+    if (syncChannel) {
+      syncChannel.removeEventListener('message', handleBroadcastMessage);
+    }
+  };
+}
+
 // Initialize default data if not existing
 export async function initDatabase(): Promise<void> {
   let adminHash = DEFAULT_ADMIN_PW_HASH;
@@ -92,6 +142,7 @@ export async function registerUser(username: string, password: string): Promise<
 
   users.push(newUser);
   localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  notifyDatabaseChange();
   return { success: true, message: 'Berhasil! Silakan Login.' };
 }
 
@@ -149,6 +200,7 @@ export function updateUserProfile(
       ...updates,
     };
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    notifyDatabaseChange();
   }
 }
 
@@ -173,6 +225,7 @@ export function addDailyData(username: string, date: string, value: number, evid
   };
   list.push(newRecord);
   localStorage.setItem(DATA_KEY, JSON.stringify(list));
+  notifyDatabaseChange();
 }
 
 // Settings methods
@@ -189,6 +242,7 @@ export function updateAppLogo(logoUrl: string): void {
   const settings = getAppSettings();
   settings.logoUrl = logoUrl;
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  notifyDatabaseChange();
 }
 
 // Admin management operations
@@ -198,6 +252,7 @@ export function toggleUserRole(username: string): void {
   if (index !== -1) {
     users[index].role = users[index].role === 'admin' ? 'user' : 'admin';
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    notifyDatabaseChange();
   }
 }
 
@@ -205,6 +260,7 @@ export function deleteUser(username: string): void {
   let users = getUsers();
   users = users.filter((u) => u.username.toLowerCase() !== username.toLowerCase());
   localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  notifyDatabaseChange();
 }
 
 export async function resetUserPassword(username: string, newPw: string): Promise<void> {
@@ -213,6 +269,7 @@ export async function resetUserPassword(username: string, newPw: string): Promis
   if (index !== -1) {
     users[index].passwordHash = await sha256Hex(newPw);
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    notifyDatabaseChange();
   }
 }
 
@@ -220,5 +277,6 @@ export function deleteDailyDataRecord(id: string): void {
   let list = getDailyData();
   list = list.filter((item) => item.id !== id);
   localStorage.setItem(DATA_KEY, JSON.stringify(list));
+  notifyDatabaseChange();
 }
 
