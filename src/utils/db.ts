@@ -188,6 +188,16 @@ export async function initDatabase(): Promise<void> {
   );
 }
 
+function cleanObjectForFirestore(obj: Record<string, any>): Record<string, any> {
+  const cleaned: Record<string, any> = {};
+  Object.keys(obj).forEach((key) => {
+    if (obj[key] !== undefined && obj[key] !== null) {
+      cleaned[key] = obj[key];
+    }
+  });
+  return cleaned;
+}
+
 // Gift Sendback Operations
 export function getGiftSendbacks(): GiftSendbackRecord[] {
   return cachedGiftSendbacks;
@@ -204,19 +214,20 @@ export async function addGiftSendback(
   const newRecord: GiftSendbackRecord = {
     id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
     username: username.trim(),
-    amount,
+    amount: Number(amount) || 0,
     date,
     notes: notes ? notes.trim() : undefined,
     evidenceUrl: evidenceUrl || undefined,
     recordedBy: recordedBy || 'admin',
   };
 
-  cachedGiftSendbacks.push(newRecord);
+  cachedGiftSendbacks.unshift(newRecord);
   localStorage.setItem(SENDBACKS_KEY, JSON.stringify(cachedGiftSendbacks));
   notifyListeners();
 
   try {
-    await setDoc(doc(db, 'gift_sendbacks', newRecord.id), newRecord);
+    const cleaned = cleanObjectForFirestore(newRecord);
+    await setDoc(doc(db, 'gift_sendbacks', newRecord.id), cleaned);
   } catch (err) {
     console.error('Error adding gift sendback record to Firestore:', err);
   }
@@ -351,16 +362,17 @@ export async function addDailyData(
     id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
     username: username.trim(),
     date,
-    value,
+    value: Number(value) || 0,
     evidenceUrl: evidenceUrl || undefined,
   };
 
-  cachedDailyData.push(newRecord);
+  cachedDailyData.unshift(newRecord);
   localStorage.setItem(DATA_KEY, JSON.stringify(cachedDailyData));
   notifyListeners();
 
   try {
-    await setDoc(doc(db, 'daily_data', newRecord.id), newRecord);
+    const cleaned = cleanObjectForFirestore(newRecord);
+    await setDoc(doc(db, 'daily_data', newRecord.id), cleaned);
   } catch (err) {
     console.error('Error adding daily data to Firestore:', err);
   }

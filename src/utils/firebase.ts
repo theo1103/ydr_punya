@@ -4,8 +4,8 @@ import config from '../../firebase-applet-config.json';
 
 const app = getApps().length > 0 ? getApp() : initializeApp(config);
 
-export const db = config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)'
-  ? initializeFirestore(app, {}, config.firestoreDatabaseId)
-  : getFirestore(app);
+export const db = initializeFirestore(app, {
+  ignoreUndefinedProperties: true,
+}, config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)' ? config.firestoreDatabaseId : '(default)');
 
 export default app;

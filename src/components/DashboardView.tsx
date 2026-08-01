@@ -56,8 +56,8 @@ export const DashboardView: React.FC = () => {
       }
       const item = map.get(key)!;
       item.total += Number(rec.value) || 0;
-      if (rec.evidence) {
-        item.evidenceList.push(rec.evidence);
+      if (rec.evidenceUrl) {
+        item.evidenceList.push(rec.evidenceUrl);
       }
     });
 

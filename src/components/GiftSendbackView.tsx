@@ -8,6 +8,7 @@ import {
   deleteGiftSendback,
   subscribeDatabaseChanges,
 } from '../utils/db';
+import { compressImageFile } from '../utils/image';
 import {
   Gift,
   Search,
@@ -147,14 +148,19 @@ export const GiftSendbackView: React.FC<GiftSendbackViewProps> = ({ currentUser 
   }, [userBalances, searchTerm, statusFilter]);
 
   // Form Image File Upload
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormEvidence(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressedBase64 = await compressImageFile(file, 800, 0.7);
+        setFormEvidence(compressedBase64);
+      } catch {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setFormEvidence(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
