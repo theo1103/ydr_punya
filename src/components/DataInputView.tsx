@@ -15,7 +15,12 @@ export const DataInputView: React.FC<DataInputViewProps> = ({ username, onDataAd
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [evidencePreview, setEvidencePreview] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [registeredUsers, setRegisteredUsers] = useState<User[]>(() => getUsers());
+
+  useEffect(() => {
+    setInputUsername(username);
+  }, [username]);
 
   useEffect(() => {
     const unsubscribe = subscribeDatabaseChanges(() => {
@@ -36,13 +41,15 @@ export const DataInputView: React.FC<DataInputViewProps> = ({ username, onDataAd
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const numericValue = parseFloat(value) || 0;
     const targetUser = inputUsername.trim() || username;
 
-    addDailyData(targetUser, date, numericValue, evidencePreview);
-    
+    setIsSubmitting(true);
+    await addDailyData(targetUser, date, numericValue, evidencePreview);
+    setIsSubmitting(false);
+
     // Show success banner
     setSuccessMessage(true);
     setValue('');
@@ -161,9 +168,10 @@ export const DataInputView: React.FC<DataInputViewProps> = ({ username, onDataAd
 
           <button
             type="submit"
-            className="w-full py-4 px-6 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-xl shadow-lg transition-all transform active:scale-98 flex items-center justify-center gap-2"
+            disabled={isSubmitting}
+            className="w-full py-4 px-6 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-600 text-white font-bold text-sm rounded-xl shadow-lg transition-all transform active:scale-98 flex items-center justify-center gap-2"
           >
-            Simpan Data
+            {isSubmitting ? 'Menyimpan ke Database...' : 'Simpan Data'}
           </button>
         </form>
       </div>
